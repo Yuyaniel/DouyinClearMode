@@ -31,8 +31,10 @@ jobs:
           gradle-version: "8.13"
 
       # GitHub ubuntu-latest runner 已预装 Android SDK + cmdline-tools（含 sdkmanager），
-      # 但 cmdline-tools/latest/bin 不在默认 PATH 中，需手动加入；
+      # 但 cmdline-tools/latest/bin 不在默认 PATH 中，需手动定位；
       # 不再用 android-actions/setup-android（会去装已废弃的 'tools' 包而报错）。
+      # 注意：API 37 为新的 minor 版本机制，平台包名为 platforms;android-37.0，
+      # 不存在裸名 platforms;android-37。
       - name: Install SDK platform 37
         run: |
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
@@ -42,7 +44,7 @@ jobs:
           echo "Using sdkmanager: $SDKMANAGER"
           test -x "$SDKMANAGER"
           yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
-          "$SDKMANAGER" --install "platforms;android-37" "build-tools;37.0.0" "platform-tools"
+          "$SDKMANAGER" --install "platforms;android-37.0" "build-tools;37.0.0" "platform-tools"
 
       - name: Build release APK
         run: gradle assembleRelease --no-daemon
