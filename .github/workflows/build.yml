@@ -28,13 +28,16 @@ jobs:
           # 不显式指定时 runner 默认可能用 Gradle 9.x，AGP 8.x 不兼容。
           gradle-version: "8.13"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install SDK platform 37 & accept licenses
+      # GitHub 的 ubuntu-latest runner 已预装 Android SDK + cmdline-tools（含 sdkmanager），
+      # 无需 android-actions/setup-android（它会去装已废弃的 'tools' 包而报错）。
+      - name: Install SDK platform 37
         run: |
-          yes | sdkmanager --licenses > /dev/null 2>&1 || true
-          sdkmanager "platforms;android-37" "build-tools;37.0.0" "platform-tools"
+          set +e
+          SDKMANAGER="$(dirname "$(dirname "$(which sdkmanager)")")/cmdline-tools/latest/bin/sdkmanager"
+          [ -x "$SDKMANAGER" ] || SDKMANAGER="$(which sdkmanager)"
+          echo "Using sdkmanager: $SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          "$SDKMANAGER" --install "platforms;android-37" "build-tools;37.0.0" "platform-tools"
 
       - name: Build release APK
         run: gradle assembleRelease --no-daemon
