@@ -50,8 +50,10 @@ dependencies {
     // 模块 App 与框架通信（Remote Preferences / scope / hot reload）
     implementation("io.github.libxposed:service:102.0.0")
 
-    // Java 模板使用 androidx.annotation.NonNull
-    compileOnly("androidx.annotation:annotation:1.9.1")
+    // 注意：不要显式声明 androidx.annotation。
+    // appcompat(compile scope) 已把 androidx.annotation 带入 compileClasspath；
+    // 若显式写更高版本(如 1.9.1)，会与 appcompat 传递的 1.3.0 在
+    // consistent resolution 下冲突，报 "Cannot find a version ... satisfies the version constraints"。
 
     // 模块 UI
     implementation("androidx.appcompat:appcompat:1.6.1")
