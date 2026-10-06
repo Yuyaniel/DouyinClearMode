@@ -47,11 +47,6 @@ public final class ModuleEntry extends XposedModule {
         if (!TARGET_PACKAGE.equals(param.getPackageName())) {
             return;
         }
-        // 目标进程名与包名一致（抖音主进程）
-        String processName = param.getProcessName();
-        if (processName != null && !processName.equals(TARGET_PACKAGE)) {
-            return;
-        }
         installHooks(param.getClassLoader());
     }
 
