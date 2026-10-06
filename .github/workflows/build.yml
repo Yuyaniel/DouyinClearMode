@@ -23,6 +23,11 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          # 固定 Gradle 8.7，与 build.gradle.kts 中的 AGP 8.1.4 匹配。
+          # 不显式指定时 runner 会默认使用 Gradle 9.x，而 AGP 8.1.4 不兼容 Gradle 9，
+          # 会报: DependencyHandler.module(Object) 缺失。
+          gradle-version: "8.7"
 
       - name: Build release APK
         run: gradle assembleRelease --no-daemon
