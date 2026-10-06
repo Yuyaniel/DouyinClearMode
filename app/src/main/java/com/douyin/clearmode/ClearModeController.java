@@ -1,54 +1,50 @@
 package com.douyin.clearmode;
 import android.util.Log;
+import android.view.SurfaceView;
+import android.view.TextureView;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewParent;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.WeakHashMap;
 /**
  * 清爽模式核心控制器（Hook 进程侧）。
  *
- * <p>负责记录「清爽模式」状态，并对播放页的叠加控件执行显隐切换。
+ * <p><b>定位思路（v3）</b>：宿主经过 R8 混淆后，视频 View 的类名不再是
+ * SurfaceView/TextureView，<b>按类名匹配必然失效</b>。因此改用 instanceof 判定。
  *
- * <p>定位策略：宿主混淆、字段名不稳定，采用「视图树递归 + 结构特征匹配」。
- *
- * <p><b>关键约束</b>：视频画面装在一个<b>全屏 ViewGroup</b> 里。早期版本只在根布局
- * 直接子级里按「ViewGroup + 大尺寸」打分选最优，结果选中视频容器本身，GONE 之后
- * 只剩 DecorView 灰色底（表现为全屏灰遮罩）。因此现在：
- * 包含视频表面的容器整棵跳过；接近全屏的容器视为内容层绝不隐藏；
- * 只接受贴边条状控件；只恢复本模块自己隐藏过的 View。
+ * <p>播放页层级为「页面容器 → 视频层 + 控件层」，所以：
+ * 用 instanceof 找到视频 View → 取其父容器 → 父容器下其余可见子节点即叠加控件。
  */
 public final class ClearModeController {
     private static final String TAG = "ClearMode";
     private static volatile boolean sClearMode = false;
-    /** 仅恢复本模块隐藏过的 View，避免把本就该隐藏的控件误显示。 */
     private static final Map<View, Boolean> HIDDEN_BY_US =
             Collections.synchronizedMap(new WeakHashMap<View, Boolean>());
-    /** 递归深度上限。 */
-    private static final int MAX_DEPTH = 12;
+    /** 叠加控件最小尺寸。 */
+    private static final int MIN_SIZE_PX = 32;
     private ClearModeController() {
     }
-    /** 进入清爽模式。 */
     public static void enterClear(View root) {
         sClearMode = true;
         applyClear(root, true);
         Log.i(TAG, "event=enter_clear");
     }
-    /** 退出清爽模式。 */
     public static void exitClear(View root) {
         sClearMode = false;
         restoreAll();
         Log.i(TAG, "event=exit_clear");
     }
-    /** 播放中。 */
     public static void onPlaying(View root) {
         if (sClearMode && ClearModePrefs.clearOnPlay()) {
             applyClear(root, true);
         }
     }
-    /** 暂停。 */
     public static void onPause(View root) {
         restoreAll();
     }
@@ -65,16 +61,19 @@ public final class ClearModeController {
         }
         List<View> targets = findOverlays(root);
         if (targets.isEmpty()) {
-            Log.i(TAG, "event=no_overlay_found");
+            Log.i(TAG, "event=no_overlay_found root=" + root.getClass().getName());
             return;
         }
         int hidden = 0;
         for (View v : targets) {
-            if (v.getVisibility() != View.GONE) {
-                v.setVisibility(View.GONE);
-                HIDDEN_BY_US.put(v, Boolean.TRUE);
-                hidden++;
+            if (v.getVisibility() == View.GONE) {
+                continue;
             }
+            v.setVisibility(View.GONE);
+            HIDDEN_BY_US.put(v, Boolean.TRUE);
+            hidden++;
+            Log.i(TAG, "event=hide_view class=" + v.getClass().getName()
+                    + " w=" + v.getWidth() + " h=" + v.getHeight());
         }
         Log.i(TAG, "event=overlay_hidden count=" + hidden);
     }
@@ -94,90 +93,75 @@ public final class ClearModeController {
         Log.i(TAG, "event=overlay_restored count=" + restored);
     }
     /**
-     * 在视图树中收集「叠加控件」：贴边条状、不含视频表面、非内容层。
+     * 定位叠加控件：instanceof 找到视频 View，取其父容器下的其余可见子节点。
      */
     private static List<View> findOverlays(View root) {
-        List<View> result = new ArrayList<>();
-        collect(root, result, 0);
-        return result;
-    }
-    private static void collect(View v, List<View> out, int depth) {
-        if (v == null || depth > MAX_DEPTH || v.getVisibility() != View.VISIBLE) {
-            return;
+        View video = findVideoView(root);
+        if (video == null) {
+            Log.i(TAG, "event=no_video_view");
+            return Collections.emptyList();
         }
-        // 视频表面本身：跳过
-        if (isVideoSurface(v)) {
-            return;
+        ViewParent vp = video.getParent();
+        if (!(vp instanceof ViewGroup)) {
+            return Collections.emptyList();
         }
-        // 整个子树里含视频表面 → 内容层，整棵跳过（关键防误伤）
-        if (containsVideoSurface(v)) {
-            return;
-        }
-        int w = v.getWidth();
-        int h = v.getHeight();
-        if (w > 0 && h > 0) {
-            int ph = parentHeight(v);
-            int pw = parentWidth(v);
-            if (pw > 0 && ph > 0) {
-                boolean nearFullWidth = w >= pw * 0.9f;
-                boolean nearFullHeight = h >= ph * 0.9f;
-                // 接近全屏 → 内容层，绝不隐藏
-                if (nearFullWidth && nearFullHeight) {
-                    return;
-                }
-                if (isEdgeBar(v, pw, ph, w, h) && isHideable(v)) {
-                    out.add(v);
-                    return;
-                }
+        ViewGroup parent = (ViewGroup) vp;
+        Set<View> result = new LinkedHashSet<>();
+        for (int i = 0; i < parent.getChildCount(); i++) {
+            View sibling = parent.getChildAt(i);
+            if (sibling == video) {
+                continue;
+            }
+            if (isAcceptable(sibling)) {
+                result.add(sibling);
             }
         }
-        if (v instanceof ViewGroup) {
-            ViewGroup g = (ViewGroup) v;
-            for (int i = 0; i < g.getChildCount(); i++) {
-                collect(g.getChildAt(i), out, depth + 1);
+        Log.i(TAG, "event=video_found class=" + video.getClass().getName()
+                + " parent=" + parent.getClass().getName()
+                + " children=" + parent.getChildCount());
+        return new ArrayList<>(result);
+    }
+    /** 可作为叠加控件：可见、够大、自身及子树不含视频 View。 */
+    private static boolean isAcceptable(View v) {
+        if (v == null || v.getVisibility() != View.VISIBLE) {
+            return false;
+        }
+        if (v.getWidth() < MIN_SIZE_PX || v.getHeight() < MIN_SIZE_PX) {
+            return false;
+        }
+        // 绝不隐藏含视频的子树（防「画面全灰」）
+        return !containsVideo(v);
+    }
+    /**
+     * 递归找视频 View。instanceof 判定，兼容混淆后的类名。
+     */
+    private static View findVideoView(View root) {
+        if (root == null) {
+            return null;
+        }
+        if (isVideoView(root)) {
+            return root;
+        }
+        if (!(root instanceof ViewGroup)) {
+            return null;
+        }
+        ViewGroup g = (ViewGroup) root;
+        for (int i = 0; i < g.getChildCount(); i++) {
+            View found = findVideoView(g.getChildAt(i));
+            if (found != null) {
+                return found;
             }
         }
+        return null;
     }
-    /** 贴边条状：靠上 / 靠下 / 靠右，且只占一侧的窄条。 */
-    private static boolean isEdgeBar(View v, int pw, int ph, int w, int h) {
-        float top = v.getTop();
-        float left = v.getLeft();
-        float right = pw - (left + w);
-        float bottom = ph - (top + h);
-        float eps = Math.max(8f, ph * 0.02f);
-        boolean atTop = top <= eps;
-        boolean atBottom = bottom <= eps;
-        boolean atRight = right <= eps;
-        boolean isBar;
-        if (atTop || atBottom) {
-            isBar = h <= ph * 0.25f;
-        } else if (atRight) {
-            isBar = w <= pw * 0.25f;
-        } else {
+    private static boolean isVideoView(View v) {
+        return v instanceof SurfaceView || v instanceof TextureView;
+    }
+    private static boolean containsVideo(View v) {
+        if (v == null) {
             return false;
         }
-        return isBar && v instanceof ViewGroup;
-    }
-    /** 排除不应被隐藏的控件。 */
-    private static boolean isHideable(View v) {
-        String name = v.getClass().getName();
-        // 播放器 / 广告等系统或宿主关键容器不动
-        if (name.contains("SurfaceView") || name.contains("TextureView")) {
-            return false;
-        }
-        return v.getAlpha() > 0.1f;
-    }
-    /** 视频渲染表面。 */
-    private static boolean isVideoSurface(View v) {
-        String name = v.getClass().getName();
-        return name.contains("SurfaceView")
-                || name.contains("TextureView")
-                || name.contains("KeepSurfaceTextureView")
-                || name.contains("Video");
-    }
-    /** 子树中是否含视频表面（判定内容层）。 */
-    private static boolean containsVideoSurface(View v) {
-        if (isVideoSurface(v)) {
+        if (isVideoView(v)) {
             return true;
         }
         if (!(v instanceof ViewGroup)) {
@@ -185,18 +169,10 @@ public final class ClearModeController {
         }
         ViewGroup g = (ViewGroup) v;
         for (int i = 0; i < g.getChildCount(); i++) {
-            if (containsVideoSurface(g.getChildAt(i))) {
+            if (containsVideo(g.getChildAt(i))) {
                 return true;
             }
         }
         return false;
-    }
-    private static int parentWidth(View v) {
-        View p = (View) v.getParent();
-        return p == null ? 0 : p.getWidth();
-    }
-    private static int parentHeight(View v) {
-        View p = (View) v.getParent();
-        return p == null ? 0 : p.getHeight();
     }
 }
