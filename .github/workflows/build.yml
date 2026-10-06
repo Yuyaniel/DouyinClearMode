@@ -11,6 +11,8 @@ jobs:
   build:
     name: Build APK
     runs-on: ubuntu-latest
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,14 +30,17 @@ jobs:
           # 不显式指定时 runner 默认可能用 Gradle 9.x，AGP 8.x 不兼容。
           gradle-version: "8.13"
 
-      # GitHub 的 ubuntu-latest runner 已预装 Android SDK + cmdline-tools（含 sdkmanager），
-      # 无需 android-actions/setup-android（它会去装已废弃的 'tools' 包而报错）。
+      # GitHub ubuntu-latest runner 已预装 Android SDK + cmdline-tools（含 sdkmanager），
+      # 但 cmdline-tools/latest/bin 不在默认 PATH 中，需手动加入；
+      # 不再用 android-actions/setup-android（会去装已废弃的 'tools' 包而报错）。
       - name: Install SDK platform 37
         run: |
-          set +e
-          SDKMANAGER="$(dirname "$(dirname "$(which sdkmanager)")")/cmdline-tools/latest/bin/sdkmanager"
-          [ -x "$SDKMANAGER" ] || SDKMANAGER="$(which sdkmanager)"
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -maxdepth 3 -name sdkmanager -type f 2>/dev/null | head -n1)"
+          fi
           echo "Using sdkmanager: $SDKMANAGER"
+          test -x "$SDKMANAGER"
           yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
           "$SDKMANAGER" --install "platforms;android-37" "build-tools;37.0.0" "platform-tools"
 
