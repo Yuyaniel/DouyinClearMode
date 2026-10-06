@@ -4,12 +4,14 @@ plugins {
 
 android {
     namespace = "com.douyin.clearmode"
-    compileSdk = 34
+    // libxposed service/api 102.0.0 的 AAR 元数据要求 minCompileSdk=37，
+    // 因此 compileSdk 必须 >= 37，且 AGP 需支持 minor SDK（8.9+）。
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.douyin.clearmode"
         minSdk = 26
-        targetSdk = 34
+        targetSdk = 36
         versionCode = 1
         versionName = "1.0.0"
     }

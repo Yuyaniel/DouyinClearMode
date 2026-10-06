@@ -24,10 +24,17 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          # 固定 Gradle 8.7，与 build.gradle.kts 中的 AGP 8.1.4 匹配。
-          # 不显式指定时 runner 会默认使用 Gradle 9.x，而 AGP 8.1.4 不兼容 Gradle 9，
-          # 会报: DependencyHandler.module(Object) 缺失。
-          gradle-version: "8.7"
+          # 固定 Gradle 8.13，与 AGP 8.13.2 匹配。
+          # 不显式指定时 runner 默认可能用 Gradle 9.x，AGP 8.x 不兼容。
+          gradle-version: "8.13"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install SDK platform 37 & accept licenses
+        run: |
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager "platforms;android-37" "build-tools;37.0.0" "platform-tools"
 
       - name: Build release APK
         run: gradle assembleRelease --no-daemon
