@@ -1,0 +1,16 @@
+<resources>
+    <string name="app_name">抖音清爽模式</string>
+    <string name="app_description">长按主页四宫格左上角进入清爽模式，播放时隐藏视频控件，暂停时显示</string>
+
+    <!-- 模块 UI -->
+    <string name="title_main">清爽模式设置</string>
+    <string name="switch_enable">启用模块</string>
+    <string name="switch_clear_on_play">播放时隐藏控件</string>
+    <string name="switch_log">输出调试日志</string>
+    <string name="btn_save">保存</string>
+    <string name="btn_reload">热重载</string>
+    <string name="status_scope">作用域</string>
+    <string name="status_service">框架服务</string>
+    <string name="status_not_bound">未绑定</string>
+    <string name="hint_gesture">长按屏幕左上角宫格进入/退出清爽模式</string>
+</resources>
