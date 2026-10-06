@@ -34,6 +34,8 @@ public final class ModuleEntry extends XposedModule {
     private static final long LONG_PRESS_MS = 600L;
 
     private volatile boolean installed;
+    /** 播放回调对象不是 Activity，缓存最近一次 DecorView 作为回退根。 */
+    private static volatile java.lang.ref.WeakReference<View> sLastRoot;
 
     @Override
     public void onModuleLoaded(@NonNull XposedModuleInterface.ModuleLoadedParam param) {
@@ -138,6 +140,7 @@ public final class ModuleEntry extends XposedModule {
 
     private static void toggle(Activity activity) {
         View root = activity.getWindow().getDecorView();
+        sLastRoot = new java.lang.ref.WeakReference<>(root);
         if (ClearModeController.isClearMode()) {
             ClearModeController.exitClear(root);
         } else {
@@ -192,9 +195,11 @@ public final class ModuleEntry extends XposedModule {
      */
     private static View currentRoot(Object owner) {
         if (owner instanceof Activity) {
-            return ((Activity) owner).getWindow().getDecorView();
+            View decor = ((Activity) owner).getWindow().getDecorView();
+            sLastRoot = new java.lang.ref.WeakReference<>(decor);
+            return decor;
         }
-        // 部分回调对象不是 Activity；无法定位时返回 null，下游会安全跳过
-        return null;
+        View cached = sLastRoot == null ? null : sLastRoot.get();
+        return cached;
     }
 }
